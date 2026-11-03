@@ -1,45 +1,55 @@
+/******************************************************************************
+ * @file    app.c
+ * @brief   小车应用层：红外循迹 + 压线声光提示（无死锁、无阻塞高速版）
+ * @note    传感器极性：压线 = 1，空白 = 0
+ ******************************************************************************/
+
 #include "config.h"
 #include "timer_ISR.h"
 #include "Delay.h"
 #include "motor.h"
 #include "app.h"
+#include "main.h"
 
-/* ==========================================
- * 速度参数调试区（建议范围 80~255）
- * ========================================== */
-#define SPD_STRAIGHT_L    180   // 直线：左轮速度
-#define SPD_STRAIGHT_R    180   // 直线：右轮速度
-
-#define SPD_TURN_OUTER    160   // 弯道：外侧轮（速度快，负责拐弯）
-#define SPD_TURN_INNER    100   // 弯道：内侧轮（速度慢，防止剧烈顿挫）
-
-void IR_Tracking(void)
+/*====================================
+函数名  ：IR_Tracking
+功能    ：红外循迹 + 任意一侧压线时声光提示
+返回值  ：无
+备注    ：传感器极性——压线=1，空白=0
+====================================*/
+void IR_Tracking()
 {
-    uchar L = TrackSensorLeft;
-    uchar R = TrackSensorRight;
+    /* 任意一侧压线（传感器输出 1 = 检测到黑线） */
+    if (TrackSensorLeft == 1 || TrackSensorRight == 1)
+    {
+        BUZZER_on;          /* 压线时蜂鸣器响 */
+        LED = 0;            /* LED 亮（低电平亮） */
+    }
+    else
+    {
+        BUZZER_off;         /* 空白区域关闭蜂鸣器 */
+        LED = 1;            /* LED 灭 */
+    }
 
-    if (L == 0 && R == 0) 
+    /* ---- 巡线动作逻辑（直接调用 main.c 中设置的速度变量） ---- */
+    if (TrackSensorLeft == 0 && TrackSensorRight == 0)
     {
-        // 1. 正常直行：两边都没看到黑线
-        SmartCarForward(SPD_STRAIGHT_L, SPD_STRAIGHT_R); 
-        BUZZER_off; // ★ 直行时不响 ★
+        /* 两边都空白 → 按直行速度平稳前进 */
+        SmartCarForward(SpeedForwardLeft, SpeedForwardRight);
     }
-    else if (L == 0 && R == 1) 
+    else if (TrackSensorLeft == 1 && TrackSensorRight == 0)
     {
-        // 2. 左侧压线：向左修正
-        SmartCarForward(SPD_TURN_INNER, SPD_TURN_OUTER); 
-        BUZZER_on;  // ★ 压线时鸣笛 ★
+        /* 仅左侧压线 → 左转修正（内侧轮 0，外侧右轮使用 SpeedTurnLeft 快速推进） */
+        SmartCarLeft(0, SpeedTurnLeft);
     }
-    else if (L == 1 && R == 0) 
+    else if (TrackSensorLeft == 0 && TrackSensorRight == 1)
     {
-        // 3. 右侧压线：向右修正
-        SmartCarForward(SPD_TURN_OUTER, SPD_TURN_INNER); 
-        BUZZER_on;  // ★ 压线时鸣笛 ★
+        /* 仅右侧压线 → 右转修正（外侧左轮使用 SpeedTurnRight 快速推进，内侧轮 0） */
+        SmartCarRight(SpeedTurnRight, 0);
     }
-    else 
+    else
     {
-        // 4. 十字路口/横线：全速冲过去
-        SmartCarForward(SPD_STRAIGHT_L, SPD_STRAIGHT_R);
-        BUZZER_off; // 十字路口算直行，不响
+        /* 两边都压线（11）→ 按直行速度前进 */
+        SmartCarForward(SpeedForwardLeft, SpeedForwardRight);
     }
 }
