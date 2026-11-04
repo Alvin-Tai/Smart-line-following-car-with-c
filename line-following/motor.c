@@ -1,8 +1,8 @@
 #include "config.h"
 #include "motor.h"
 
-uchar LeftMotorSpeed;
-uchar RightMotorSpeed;
+volatile uchar LeftMotorSpeed;
+volatile uchar RightMotorSpeed;
 
 void SmartCarForward(uchar LeftSpeedVal,uchar RightSpeedVal)
 {

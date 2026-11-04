@@ -4,8 +4,9 @@
 #include <reg52.h>
 #include "config.h"
 
-extern unsigned char LeftMotorSpeed;
-extern unsigned char RightMotorSpeed;
+/* 加上 volatile 确保 PWM 中断读取速度时无延迟 */
+extern volatile unsigned char LeftMotorSpeed;
+extern volatile unsigned char RightMotorSpeed;
 
 void SmartCarForward(uchar LeftSpeedVal,uchar RightSpeedVal);
 void SmartCarBack(uchar LeftSpeedVal,uchar RightSpeedVal);
