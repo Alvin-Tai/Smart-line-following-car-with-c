@@ -1,6 +1,6 @@
 /******************************************************************************
  * @file    app.c
- * @brief   小车应用层：传感器优先 + 可中断的转弯保持逻辑
+ * @brief   小车应用层：高电平有效（压线 = 1，空白 = 0）版本
  * @note    传感器极性：压线 = 1，空白 = 0
  ******************************************************************************/
 
@@ -12,85 +12,73 @@
 #include "main.h"
 
 /* =====================================================================
- * ★★★ 核心速度与保持参数配置区 ★★★
+ * ★★★ 核心调速与保持参数配置区 ★★★
  * ===================================================================== */
-#define SPEED_FORWARD_LEFT   60     
-#define SPEED_FORWARD_RIGHT  60     
+#define SPEED_STRAIGHT   60     /* 直行基础速度 */
+#define SPEED_OUTSIDE    250    /* 转弯时外侧轮速度 */
+#define SPEED_INSIDE     1      /* 转弯时内侧轮微速 */
 
-#define SPEED_TURN_LEFT      250    
-#define SPEED_TURN_RIGHT     250    
-
-/* 转弯保持周期（盲打保持时间，可根据过弯表现微调） */
-#define TURN_HOLD_TIME       333     
+#define TURN_HOLD_TIME   7777   /* 保持计数（确保能死死咬住急弯） */
 /* ===================================================================== */
 
-static uchar turn_hold_counter = 0;  
-static uchar last_turn_direction = 0;
+static unsigned int hold_counter = 0;  
+static uchar last_direction = 0;       /* 1=左转偏向，2=右转偏向 */
 
 void IR_Tracking()
 {
-    /* 视觉提示：仅 LED 亮灭指示压线，不鸣笛（夜间静音） */
+    /* 1. LED 指示（高电平 1 压线时 LED 亮） */
     if (TrackSensorLeft == 1 || TrackSensorRight == 1)
     {
-        // BUZZER_on;       
         LED = 0;            /* 压线：LED亮 */
     }
     else
     {
-        // BUZZER_off;      
         LED = 1;            /* 丢线：LED灭 */
     }
 
     /* =================================================================
-     * 第一优先级：传感器实时状态（最高优先级！）
-     * 只要传感器检测到黑线，立刻响应、更新方向、并刷新保持计数。
-     * 绝不忽略任何一次灯亮！
+     * 2. 第一优先级：明确的单侧偏离纠正（压线 = 1, 空白 = 0）
+     * 极性已取反：左压线(1)右空白(0)；左空白(0)右压线(1)
      * ================================================================= */
     if (TrackSensorLeft == 1 && TrackSensorRight == 0)
     {
-        last_turn_direction = 1;            /* 记录方向：左转 */
-        turn_hold_counter = TURN_HOLD_TIME; /* 刷新保持倒计时 */
-        SmartCarLeft(0, SPEED_TURN_LEFT);   /* 执行左转 */
+        /* 左侧压线，右侧空白 -> 需要向左修正 */
+        last_direction = 1;            
+        hold_counter = TURN_HOLD_TIME; 
+        SmartCarLeft(SPEED_INSIDE, SPEED_OUTSIDE);   
         return;
     }
     else if (TrackSensorLeft == 0 && TrackSensorRight == 1)
     {
-        last_turn_direction = 2;            /* 记录方向：右转 */
-        turn_hold_counter = TURN_HOLD_TIME; /* 刷新保持倒计时 */
-        SmartCarRight(SPEED_TURN_RIGHT, 0); /* 执行右转 */
-        return;
-    }
-    else if (TrackSensorLeft == 1 && TrackSensorRight == 1)
-    {
-        /* 双侧压线：清空保持，按直行通过 */
-        last_turn_direction = 0;
-        turn_hold_counter = 0;
-        SmartCarForward(SPEED_FORWARD_LEFT, SPEED_FORWARD_RIGHT);
+        /* 左侧空白，右侧压线 -> 需要向右修正 */
+        last_direction = 2;            
+        hold_counter = TURN_HOLD_TIME; 
+        SmartCarRight(SPEED_OUTSIDE, SPEED_INSIDE);  
         return;
     }
 
     /* =================================================================
-     * 第二优先级：只有当传感器双双【丢线 (0,0)】时，
-     * 才会启动“转弯保持（盲打）”，防止在急弯瞬间因丢线而直行冲出！
+     * 3. 第二优先级：盲打保持期（绝对保护区！）
      * ================================================================= */
-    if (turn_hold_counter > 0)
+    if (hold_counter > 0)
     {
-        turn_hold_counter--; // 盲打倒计时递减
+        hold_counter--; 
         
-        if (last_turn_direction == 1)
+        if (last_direction == 1)
         {
-            SmartCarLeft(0, SPEED_TURN_LEFT);   /* 继续保持左转 */
+            SmartCarLeft(SPEED_INSIDE, SPEED_OUTSIDE);   
         }
-        else if (last_turn_direction == 2)
+        else if (last_direction == 2)
         {
-            SmartCarRight(SPEED_TURN_RIGHT, 0); /* 继续保持右转 */
+            SmartCarRight(SPEED_OUTSIDE, SPEED_INSIDE); 
         }
         return;
     }
 
     /* =================================================================
-     * 第三优先级：既没压线，也没有保持计数，恢复正常直行
+     * 4. 第三优先级：默认直行
+     * 此时双侧都是 0（完全丢线且无保持），或者双侧都是 1（在直道上）
      * ================================================================= */
-    last_turn_direction = 0;
-    SmartCarForward(SPEED_FORWARD_LEFT, SPEED_FORWARD_RIGHT);
+    last_direction = 0;
+    SmartCarForward(SPEED_STRAIGHT, SPEED_STRAIGHT);
 }
